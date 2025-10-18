@@ -121,11 +121,11 @@ def main():
 
     svg_parts = []
 
-    def progress_callback(step_num, total, step):
+    def progress_callback(step_num, total, step, state):
         if step:
             svg_parts.append(step.to_svg())
         if step_num % 5 == 0 or step_num == total:
-            print(f"Progress: {step_num}/{total} shapes (distance: {optimizer.state.distance:.6f})")
+            print(f"Progress: {step_num}/{total} shapes (distance: {state.distance:.6f})")
 
     print("Starting optimization...")
     final_state = optimizer.start(progress_callback)

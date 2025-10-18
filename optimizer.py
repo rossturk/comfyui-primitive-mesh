@@ -64,18 +64,12 @@ class Optimizer:
 
             if step and step.distance < self.state.distance:
                 # Better than current state
-                old_distance = self.state.distance
                 self.state = step.apply(self.state)
-                print(f"  Step {i+1}: Accepted (distance {old_distance:.6f} -> {self.state.distance:.6f})")
 
                 if self.on_step:
                     self.on_step(i + 1, total_steps, step, self.state)
             else:
                 # No improvement
-                if step:
-                    print(f"  Step {i+1}: Rejected (distance would be {step.distance:.6f} vs current {self.state.distance:.6f})")
-                else:
-                    print(f"  Step {i+1}: No step generated")
                 if self.on_step:
                     self.on_step(i + 1, total_steps, None, self.state)
 

@@ -1,20 +1,20 @@
 """
-ComfyUI Sketchbeast Node
+ComfyUI Primitive Mesh Node
 Image-to-vector art generator using geometric shape optimization.
 
 Based on the Sketchbeast algorithm (derivative of primitive.js by Ondřej Žára).
 """
 
 import os
-from .node import SketchbeastNode
+from .node import PrimitiveMeshNode
 
 # ComfyUI node registration
 NODE_CLASS_MAPPINGS = {
-    "SketchbeastNode": SketchbeastNode
+    "PrimitiveMeshNode": PrimitiveMeshNode
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SketchbeastNode": "Sketchbeast Image to Vector Art"
+    "PrimitiveMeshNode": "Create a Primitive Mesh"
 }
 
 # Web directory for JavaScript extensions

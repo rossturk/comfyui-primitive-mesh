@@ -50,7 +50,7 @@ def difference(data1: np.ndarray, data2: np.ndarray) -> float:
 
 def compute_color(offset: dict, image_data: dict, alpha: float) -> np.ndarray:
     """
-    Compute optimal RGB color for a shape.
+    Compute optimal RGB color for a shape (vectorized version).
 
     Args:
         offset: Dictionary with 'top', 'left', 'width', 'height'
@@ -60,7 +60,6 @@ def compute_color(offset: dict, image_data: dict, alpha: float) -> np.ndarray:
     Returns:
         RGB color as numpy array [R, G, B]
     """
-    color = np.zeros(3, dtype=np.float64)
     shape_data = image_data['shape']
     current_data = image_data['current']
     target_data = image_data['target']
@@ -68,41 +67,58 @@ def compute_color(offset: dict, image_data: dict, alpha: float) -> np.ndarray:
     sh, sw = shape_data.shape[:2]
     fh, fw = current_data.shape[:2]
 
-    count = 0
+    # Calculate valid region bounds (clip to image boundaries)
+    top = offset['top']
+    left = offset['left']
 
-    for sy in range(sh):
-        fy = sy + offset['top']
-        if fy < 0 or fy >= fh:
-            continue
+    # Calculate valid overlap region
+    shape_y_start = max(0, -top)
+    shape_y_end = min(sh, fh - top)
+    shape_x_start = max(0, -left)
+    shape_x_end = min(sw, fw - left)
 
-        for sx in range(sw):
-            fx = offset['left'] + sx
-            if fx < 0 or fx >= fw:
-                continue
+    frame_y_start = max(0, top)
+    frame_y_end = min(fh, top + sh)
+    frame_x_start = max(0, left)
+    frame_x_end = min(fw, left + sw)
 
-            # Only where drawn (check alpha channel)
-            if shape_data[sy, sx, 3] == 0:
-                continue
+    # Handle out of bounds cases
+    if shape_y_start >= shape_y_end or shape_x_start >= shape_x_end:
+        return np.array([0, 0, 0], dtype=np.uint8)
 
-            # Accumulate color differences (cast to float to avoid overflow)
-            for c in range(3):  # RGB channels
-                target_val = float(target_data[fy, fx, c])
-                current_val = float(current_data[fy, fx, c])
-                color[c] += (target_val - current_val) / alpha + current_val
+    # Extract overlapping regions
+    shape_region = shape_data[shape_y_start:shape_y_end, shape_x_start:shape_x_end]
+    current_region = current_data[frame_y_start:frame_y_end, frame_x_start:frame_x_end]
+    target_region = target_data[frame_y_start:frame_y_end, frame_x_start:frame_x_end]
 
-            count += 1
+    # Create mask where shape is drawn (alpha > 0)
+    mask = shape_region[:, :, 3] > 0
 
+    count = np.sum(mask)
     if count == 0:
         return np.array([0, 0, 0], dtype=np.uint8)
 
+    # Vectorized color computation
+    # Formula: color[c] = ((target - current) / alpha + current)
+    # Convert to float64 to avoid overflow
+    target_rgb = target_region[:, :, :3].astype(np.float64)
+    current_rgb = current_region[:, :, :3].astype(np.float64)
+
+    # Compute optimal color for each RGB channel
+    color_contribution = (target_rgb - current_rgb) / alpha + current_rgb
+
+    # Apply mask and sum (using broadcasting)
+    mask_3d = mask[:, :, np.newaxis]  # (H, W, 1) for broadcasting
+    color_sum = np.sum(color_contribution * mask_3d, axis=(0, 1))  # Sum over H and W
+
     # Average and clamp
-    color = color / count
-    return np.array([clamp_color(c) for c in color], dtype=np.uint8)
+    color = color_sum / count
+    return np.clip(color, 0, 255).astype(np.uint8)
 
 
 def compute_difference_change(offset: dict, image_data: dict, color: np.ndarray) -> float:
     """
-    Compute change in difference when adding a shape with given color.
+    Compute change in difference when adding a shape with given color (vectorized version).
 
     Args:
         offset: Dictionary with 'top', 'left', 'width', 'height'
@@ -119,42 +135,73 @@ def compute_difference_change(offset: dict, image_data: dict, color: np.ndarray)
     sh, sw = shape_data.shape[:2]
     fh, fw = current_data.shape[:2]
 
-    sum_diff = 0.0
+    # Calculate valid region bounds (clip to image boundaries)
+    top = offset['top']
+    left = offset['left']
 
-    for sy in range(sh):
-        fy = sy + offset['top']
-        if fy < 0 or fy >= fh:
-            continue
+    # Calculate valid overlap region
+    shape_y_start = max(0, -top)
+    shape_y_end = min(sh, fh - top)
+    shape_x_start = max(0, -left)
+    shape_x_end = min(sw, fw - left)
 
-        for sx in range(sw):
-            fx = offset['left'] + sx
-            if fx < 0 or fx >= fw:
-                continue
+    frame_y_start = max(0, top)
+    frame_y_end = min(fh, top + sh)
+    frame_x_start = max(0, left)
+    frame_x_end = min(fw, left + sw)
 
-            a = shape_data[sy, sx, 3]
-            if a == 0:
-                continue
+    # Handle out of bounds cases
+    if shape_y_start >= shape_y_end or shape_x_start >= shape_x_end:
+        return 0.0
 
-            a = a / 255.0
-            b = 1.0 - a
+    # Extract overlapping regions
+    shape_region = shape_data[shape_y_start:shape_y_end, shape_x_start:shape_x_end]
+    current_region = current_data[frame_y_start:frame_y_end, frame_x_start:frame_x_end]
+    target_region = target_data[frame_y_start:frame_y_end, frame_x_start:frame_x_end]
 
-            # Calculate differences before and after (cast to float to avoid overflow)
-            target_pixel = target_data[fy, fx, :3].astype(np.float64)
-            current_pixel = current_data[fy, fx, :3].astype(np.float64)
+    # Get alpha values and create mask
+    alpha_channel = shape_region[:, :, 3].astype(np.float64) / 255.0  # (H, W)
+    mask = alpha_channel > 0
 
-            d1 = target_pixel - current_pixel
-            d2 = target_pixel - (color * a + current_pixel * b)
+    if not np.any(mask):
+        return 0.0
 
-            # Update sum
-            sum_diff -= np.sum(d1 * d1)
-            sum_diff += np.sum(d2 * d2)
+    # Convert to float64 for precision
+    target_rgb = target_region[:, :, :3].astype(np.float64)
+    current_rgb = current_region[:, :, :3].astype(np.float64)
+    color_f64 = color.astype(np.float64)
+
+    # Vectorized computation
+    # a = alpha, b = 1 - alpha
+    # d1 = target - current
+    # d2 = target - (color * a + current * b)
+
+    # Expand alpha to 3 channels for RGB operations (H, W, 3)
+    alpha_3d = alpha_channel[:, :, np.newaxis]
+    beta_3d = 1.0 - alpha_3d
+
+    # Compute differences (only where mask is True matters, but compute everywhere for vectorization)
+    d1 = target_rgb - current_rgb
+    new_pixel = color_f64 * alpha_3d + current_rgb * beta_3d
+    d2 = target_rgb - new_pixel
+
+    # Compute squared differences
+    d1_squared = d1 * d1  # (H, W, 3)
+    d2_squared = d2 * d2  # (H, W, 3)
+
+    # Apply mask (only sum where shape is drawn)
+    mask_3d = mask[:, :, np.newaxis]
+    sum_diff = np.sum((d2_squared - d1_squared) * mask_3d)
 
     return sum_diff
 
 
 def compute_color_and_difference_change(offset: dict, image_data: dict, alpha: float) -> Tuple[np.ndarray, float]:
     """
-    Compute optimal color and resulting difference change.
+    Compute optimal color and resulting difference change (optimized combined version).
+
+    This function combines both computations to avoid redundant array operations
+    and region extraction, providing significant performance improvements.
 
     Args:
         offset: Dictionary with 'top', 'left', 'width', 'height'
@@ -164,6 +211,82 @@ def compute_color_and_difference_change(offset: dict, image_data: dict, alpha: f
     Returns:
         Tuple of (rgb color array, difference change)
     """
-    rgb = compute_color(offset, image_data, alpha)
-    difference_change = compute_difference_change(offset, image_data, rgb)
+    shape_data = image_data['shape']
+    current_data = image_data['current']
+    target_data = image_data['target']
+
+    sh, sw = shape_data.shape[:2]
+    fh, fw = current_data.shape[:2]
+
+    # Calculate valid region bounds (clip to image boundaries)
+    top = offset['top']
+    left = offset['left']
+
+    # Calculate valid overlap region
+    shape_y_start = max(0, -top)
+    shape_y_end = min(sh, fh - top)
+    shape_x_start = max(0, -left)
+    shape_x_end = min(sw, fw - left)
+
+    frame_y_start = max(0, top)
+    frame_y_end = min(fh, top + sh)
+    frame_x_start = max(0, left)
+    frame_x_end = min(fw, left + sw)
+
+    # Handle out of bounds cases
+    if shape_y_start >= shape_y_end or shape_x_start >= shape_x_end:
+        return np.array([0, 0, 0], dtype=np.uint8), 0.0
+
+    # Extract overlapping regions (only done once, shared by both computations)
+    shape_region = shape_data[shape_y_start:shape_y_end, shape_x_start:shape_x_end]
+    current_region = current_data[frame_y_start:frame_y_end, frame_x_start:frame_x_end]
+    target_region = target_data[frame_y_start:frame_y_end, frame_x_start:frame_x_end]
+
+    # Create mask where shape is drawn (alpha > 0)
+    alpha_channel = shape_region[:, :, 3].astype(np.float64) / 255.0  # (H, W)
+    mask = alpha_channel > 0
+
+    count = np.sum(mask)
+    if count == 0:
+        return np.array([0, 0, 0], dtype=np.uint8), 0.0
+
+    # Convert to float64 for precision (shared arrays)
+    target_rgb = target_region[:, :, :3].astype(np.float64)
+    current_rgb = current_region[:, :, :3].astype(np.float64)
+
+    # ========== COMPUTE OPTIMAL COLOR ==========
+    # Formula: color[c] = ((target - current) / alpha + current)
+    color_contribution = (target_rgb - current_rgb) / alpha + current_rgb
+
+    # Apply mask and sum (using broadcasting)
+    mask_3d = mask[:, :, np.newaxis]  # (H, W, 1) for broadcasting
+    color_sum = np.sum(color_contribution * mask_3d, axis=(0, 1))  # Sum over H and W
+
+    # Average and clamp
+    color = color_sum / count
+    rgb = np.clip(color, 0, 255).astype(np.uint8)
+
+    # ========== COMPUTE DIFFERENCE CHANGE ==========
+    # Now compute difference change using the computed color
+    color_f64 = rgb.astype(np.float64)
+
+    # Expand alpha to 3 channels for RGB operations (H, W, 3)
+    # For difference computation, we need the actual alpha from the shape
+    alpha_3d = alpha_channel[:, :, np.newaxis]
+    beta_3d = 1.0 - alpha_3d
+
+    # Compute differences
+    # d1 = target - current (before adding shape)
+    # d2 = target - (color * alpha + current * beta) (after adding shape)
+    d1 = target_rgb - current_rgb
+    new_pixel = color_f64 * alpha_3d + current_rgb * beta_3d
+    d2 = target_rgb - new_pixel
+
+    # Compute squared differences
+    d1_squared = d1 * d1  # (H, W, 3)
+    d2_squared = d2 * d2  # (H, W, 3)
+
+    # Apply mask (only sum where shape is drawn)
+    difference_change = np.sum((d2_squared - d1_squared) * mask_3d)
+
     return rgb, difference_change
