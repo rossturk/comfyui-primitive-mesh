@@ -1,8 +1,8 @@
-# ComfyUI Sketchbeast Node
+# ComfyUI Primitive Mesh Generator
 
 **Image-to-vector art generator for ComfyUI** - Convert photographs into artistic collages composed of geometric shapes using a greedy optimization algorithm.
 
-This is a Python port of the [Sketchbeast](https://github.com/rossturk/comfyui_primitivemesh) algorithm (itself a derivative of [primitive.js](https://github.com/ondras/primitive.js) by Ondřej Žára) adapted as a ComfyUI custom node.
+This is a Python port of the [Sketchbeast](https://github.com/rossturk/sketchbeast) algorithm (itself a derivative of [primitive.js](https://github.com/ondras/primitive.js) by Ondřej Žára) adapted as a ComfyUI custom node.
 
 ## Features
 
