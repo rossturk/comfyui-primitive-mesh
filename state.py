@@ -5,7 +5,10 @@ Ported from state.js to Python.
 
 import numpy as np
 from typing import TYPE_CHECKING
-from . import util
+try:
+    from . import util
+except ImportError:
+    import util
 
 if TYPE_CHECKING:
     from PIL import Image

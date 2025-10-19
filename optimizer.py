@@ -8,9 +8,14 @@ from typing import Callable, Optional
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import time
 
-from .shapes import Shape
-from .step import Step
-from .state import State
+try:
+    from .shapes import Shape
+    from .step import Step
+    from .state import State
+except ImportError:
+    from shapes import Shape
+    from step import Step
+    from state import State
 
 
 class Optimizer:

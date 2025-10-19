@@ -4,7 +4,7 @@ ComfyUI node implementation of a primitive mesh.
 
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from typing import Tuple, Dict, Any
 import random
 import io
@@ -12,6 +12,17 @@ import base64
 
 from .shapes import Triangle, Rectangle, RotatedRectangle, Ellipse, Quadrilateral
 from .optimizer import Optimizer
+
+# Try to import GPU-accelerated versions
+try:
+    from .optimizer_torch import OptimizerTorch
+    from .optimizer_ultra import OptimizerUltra
+    from .util_torch import get_device
+    GPU_AVAILABLE = torch.cuda.is_available()
+except ImportError:
+    GPU_AVAILABLE = False
+    OptimizerTorch = None
+    OptimizerUltra = None
 
 # ComfyUI imports for preview support
 try:
@@ -54,24 +65,17 @@ class PrimitiveMeshNode:
                 ], {
                     "default": "mixed"
                 }),
-                "alpha": ("FLOAT", {
-                    "default": 0.5,
-                    "min": 0.1,
-                    "max": 1.0,
-                    "step": 0.05,
-                    "display": "slider"
+                "style": ([
+                    "crispy",
+                    "dreamy",
+                    "blurry"
+                ], {
+                    "default": "dreamy"
                 }),
                 "seed": ("INT", {
                     "default": 0,
                     "min": 0,
                     "max": 0xffffffffffffffff,
-                    "display": "number"
-                }),
-                "compute_size": ("INT", {
-                    "default": 256,
-                    "min": 128,
-                    "max": 1024,
-                    "step": 64,
                     "display": "number"
                 }),
                 "candidate_shapes": ("INT", {
@@ -88,12 +92,6 @@ class PrimitiveMeshNode:
                     "step": 10,
                     "display": "number"
                 }),
-            },
-            "optional": {
-                "fill_color": ("STRING", {
-                    "default": "auto",
-                    "multiline": False
-                }),
             }
         }
 
@@ -108,12 +106,10 @@ class PrimitiveMeshNode:
         image: torch.Tensor,
         num_shapes: int,
         shape_type: str,
-        alpha: float,
+        style: str,
         seed: int,
-        compute_size: int,
         candidate_shapes: int,
-        mutations: int,
-        fill_color: str = "auto"
+        mutations: int
     ) -> Tuple[torch.Tensor, str]:
         """
         Generate vector art from input image.
@@ -122,21 +118,38 @@ class PrimitiveMeshNode:
             image: Input image tensor (B, H, W, C) in range 0-1
             num_shapes: Number of shapes to generate
             shape_type: Type of shapes to use
-            alpha: Shape transparency (0-1)
+            style: Visual style ("crispy", "dreamy", "blurry")
             seed: Random seed for reproducibility
-            compute_size: Maximum dimension for computation
             candidate_shapes: Number of candidate shapes per iteration
             mutations: Maximum mutation attempts per shape
-            fill_color: Background fill color (hex or 'auto')
 
         Returns:
             Tuple of (output image tensor, SVG string)
         """
+        # Hardcoded compute size for optimization
+        compute_size = 256
+        # Hardcoded fill color (auto-detect from image border)
+        fill_color = "auto"
+
         # Set random seed (clamp to valid range for NumPy)
         # NumPy requires seed to be between 0 and 2**32 - 1
         seed_clamped = seed % (2**32)
         random.seed(seed)
         np.random.seed(seed_clamped)
+
+        # Configure alpha based on style
+        if style == "crispy":
+            # High opacity, less variation - sharp defined shapes
+            alpha_base = 0.85
+            alpha_range = 0.15  # 0.7 to 1.0
+        elif style == "dreamy":
+            # Medium opacity with variation - soft blended look
+            alpha_base = 0.5
+            alpha_range = 0.3  # 0.35 to 0.65
+        else:  # blurry
+            # Low opacity, high variation - very transparent overlapping
+            alpha_base = 0.25
+            alpha_range = 0.2  # 0.15 to 0.35
 
         # Convert ComfyUI tensor to numpy (take first image if batch)
         img_np = image[0].cpu().numpy()  # (H, W, C)
@@ -180,12 +193,13 @@ class PrimitiveMeshNode:
             'width': compute_width,
             'height': compute_height,
             'steps': num_shapes,
-            'alpha': alpha,
+            'alpha': alpha_base,  # Base alpha value
+            'alpha_range': alpha_range,  # Range for randomization
             'shapeTypes': shape_types,
             'shapes': candidate_shapes,
             'mutations': mutations,
             'computeSize': compute_size,
-            'mutateAlpha': False,
+            'mutateAlpha': True,  # Enable alpha variation
             'blur': 0,  # No blur for now
             'minlinewidth': 1,
             'maxlinewidth': 2,
@@ -193,12 +207,22 @@ class PrimitiveMeshNode:
             'parallel': False  # Sequential is more reliable for now
         }
 
-        # Run optimization
-        print(f"Starting primitive mesh optimization: {num_shapes} shapes, {shape_type} mode")
-
-        optimizer = Optimizer(target_array, initial_canvas, cfg)
+        # Determine which optimizer to use (auto-detect GPU)
+        if GPU_AVAILABLE and OptimizerTorch:
+            print(f"Starting GPU-accelerated optimization: {num_shapes} shapes, {shape_type} mode, {style} style")
+            print("  GPU Mode: Hybrid rasterization + GPU color computation")
+            device = get_device()
+            optimizer = OptimizerTorch(target_array, initial_canvas, cfg, device)
+            use_gpu_optimizer = True
+        else:
+            if not GPU_AVAILABLE:
+                print("GPU not available, using CPU")
+            print(f"Starting CPU optimization: {num_shapes} shapes, {shape_type} mode, {style} style")
+            optimizer = Optimizer(target_array, initial_canvas, cfg)
+            use_gpu_optimizer = False
 
         svg_parts = []
+        step_list = []  # Store actual step objects for later scaling
         step_count = [0]  # Use list for closure
 
         # Initialize ComfyUI progress bar if available
@@ -210,6 +234,7 @@ class PrimitiveMeshNode:
             """Callback for progress updates with preview support."""
             step_count[0] = step_num
             if step:
+                step_list.append(step)  # Store the step object
                 svg_parts.append(step.to_svg())
 
             # Update progress bar
@@ -219,8 +244,13 @@ class PrimitiveMeshNode:
             # Send preview every N steps via PromptServer WebSocket
             preview_interval = max(1, num_shapes // 20)  # Show ~20 previews total
             if COMFY_AVAILABLE and PromptServer and (step_num % preview_interval == 0 or step_num == total):
-                # Get current canvas and convert to preview format
-                preview_array = state.current[:, :, :3]  # RGB only
+                # Get current canvas (handle both CPU and GPU state)
+                if use_gpu_optimizer:
+                    # GPU state - convert to numpy
+                    preview_array = state.current.cpu().numpy()[:, :, :3]  # RGB only
+                else:
+                    # CPU state - already numpy
+                    preview_array = state.current[:, :, :3]  # RGB only
 
                 # Resize to original dimensions for preview
                 preview_pil = Image.fromarray(preview_array.astype(np.uint8))
@@ -244,21 +274,51 @@ class PrimitiveMeshNode:
 
         final_state = optimizer.start(progress_callback)
 
-        # Convert result back to ComfyUI tensor
-        result_array = final_state.current[:, :, :3]  # Drop alpha channel
+        # Scale all shapes to original resolution and re-render
+        print(f"Rendering {len(step_list)} shapes at original resolution ({original_width}x{original_height})...")
 
-        # Resize back to original dimensions
-        result_pil = Image.fromarray(result_array.astype(np.uint8))
-        result_pil = result_pil.resize((original_width, original_height), Image.Resampling.LANCZOS)
-        result_np = np.array(result_pil).astype(np.float32) / 255.0
+        # Create full-resolution canvas
+        full_res_canvas = np.ones((original_height, original_width, 4), dtype=np.uint8) * 0
+        full_res_canvas[:, :, :3] = fill_rgb
+        full_res_canvas[:, :, 3] = 255
+
+        # Convert to PIL for rendering
+        img = Image.fromarray(full_res_canvas, mode='RGBA')
+
+        # Render each shape at full resolution
+        scaled_svg_parts = []
+        for i, step in enumerate(step_list):
+            # Scale shape coordinates to full resolution
+            step.scale(scale)
+
+            # Create overlay for this shape
+            overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            # Set color with alpha
+            color_with_alpha = step.color + (int(step.alpha * 255),)
+            step.shape.color = color_with_alpha
+
+            # Render shape on overlay
+            step.shape.render(draw)
+
+            # Composite overlay onto image
+            img = Image.alpha_composite(img, overlay)
+
+            # Generate SVG for scaled shape
+            scaled_svg_parts.append(step.to_svg())
+
+        # Convert to numpy array (RGB only)
+        result_array = np.array(img)[:, :, :3]
+        result_np = result_array.astype(np.float32) / 255.0
 
         # Convert to tensor
         result_tensor = torch.from_numpy(result_np).unsqueeze(0)  # (1, H, W, C)
 
-        # Generate SVG
-        svg = self._generate_svg(svg_parts, original_width, original_height, fill_rgb)
+        # Generate SVG at original dimensions with scaled shapes
+        svg = self._generate_svg(scaled_svg_parts, original_width, original_height, fill_rgb)
 
-        print(f"Primitive mesh complete: generated {step_count[0]} shapes")
+        print(f"Primitive mesh complete: generated {step_count[0]} shapes at {original_width}x{original_height}")
 
         return (result_tensor, svg)
 

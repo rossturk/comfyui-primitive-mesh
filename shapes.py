@@ -48,6 +48,11 @@ class Shape(ABC):
         """Generate SVG representation of shape."""
         pass
 
+    @abstractmethod
+    def scale(self, scale_factor: float) -> 'Shape':
+        """Scale shape coordinates by a factor."""
+        pass
+
     def rasterize(self, alpha: float) -> np.ndarray:
         """
         Rasterize shape to numpy array.
@@ -189,6 +194,12 @@ class Triangle(PointShape):
 
         return f'<path d="{d}" fill="rgb({self.color[0]},{self.color[1]},{self.color[2]})" fill-opacity="{self.alpha:.2f}"{filter_attr}/>'
 
+    def scale(self, scale_factor: float) -> 'Triangle':
+        """Scale triangle coordinates."""
+        self.points = [(int(p[0] * scale_factor), int(p[1] * scale_factor)) for p in self.points]
+        self.compute_bbox()
+        return self
+
 
 class Rectangle(PointShape):
     """Axis-aligned rectangle shape."""
@@ -265,6 +276,12 @@ class Rectangle(PointShape):
 
         return f'<path d="{d}" fill="rgb({self.color[0]},{self.color[1]},{self.color[2]})" fill-opacity="{self.alpha:.2f}"{filter_attr}/>'
 
+    def scale(self, scale_factor: float) -> 'Rectangle':
+        """Scale rectangle coordinates."""
+        self.points = [(int(p[0] * scale_factor), int(p[1] * scale_factor)) for p in self.points]
+        self.compute_bbox()
+        return self
+
 
 class RotatedRectangle(PointShape):
     """Rotated rectangle shape."""
@@ -340,6 +357,15 @@ class RotatedRectangle(PointShape):
 
         return f'<path d="{d}" fill="rgb({self.color[0]},{self.color[1]},{self.color[2]})" fill-opacity="{self.alpha:.2f}"{filter_attr}/>'
 
+    def scale(self, scale_factor: float) -> 'RotatedRectangle':
+        """Scale rotated rectangle coordinates."""
+        self.center = (int(self.center[0] * scale_factor), int(self.center[1] * scale_factor))
+        self.sizex *= scale_factor
+        self.sizey *= scale_factor
+        self.points = self._create_rect_points(self.center, self.sizex, self.sizey, self.angle)
+        self.compute_bbox()
+        return self
+
 
 class Ellipse(Shape):
     """Ellipse shape."""
@@ -390,25 +416,57 @@ class Ellipse(Shape):
         return clone.compute_bbox()
 
     def render(self, draw: ImageDraw.ImageDraw):
-        """Render ellipse."""
-        bbox = [
-            self.center[0] - self.rx,
-            self.center[1] - self.ry,
-            self.center[0] + self.rx,
-            self.center[1] + self.ry
-        ]
-        draw.ellipse(bbox, fill=self.color)
+        """Render ellipse with rotation support."""
+        # If no rotation, use simple ellipse
+        if abs(self.rot) < 0.01:
+            bbox = [
+                self.center[0] - self.rx,
+                self.center[1] - self.ry,
+                self.center[0] + self.rx,
+                self.center[1] + self.ry
+            ]
+            draw.ellipse(bbox, fill=self.color)
+        else:
+            # For rotated ellipses, approximate with a polygon
+            points = self._get_rotated_ellipse_points()
+            draw.polygon(points, fill=self.color)
+
+    def _get_rotated_ellipse_points(self, num_points: int = 64):
+        """Generate points for a rotated ellipse."""
+        points = []
+        for i in range(num_points):
+            angle = 2 * math.pi * i / num_points
+            # Point on unrotated ellipse
+            x = self.rx * math.cos(angle)
+            y = self.ry * math.sin(angle)
+            # Rotate by self.rot
+            x_rot = x * math.cos(self.rot) - y * math.sin(self.rot)
+            y_rot = x * math.sin(self.rot) + y * math.cos(self.rot)
+            # Translate to center
+            points.append((
+                int(self.center[0] + x_rot),
+                int(self.center[1] + y_rot)
+            ))
+        return points
 
     def _render_translated(self, draw: ImageDraw.ImageDraw, tx: int, ty: int, alpha: float):
         """Render with translation."""
-        bbox = [
-            self.center[0] - self.rx + tx,
-            self.center[1] - self.ry + ty,
-            self.center[0] + self.rx + tx,
-            self.center[1] + self.ry + ty
-        ]
         alpha_int = int(alpha * 255)
-        draw.ellipse(bbox, fill=(0, 0, 0, alpha_int))
+
+        # If no rotation, use simple ellipse
+        if abs(self.rot) < 0.01:
+            bbox = [
+                self.center[0] - self.rx + tx,
+                self.center[1] - self.ry + ty,
+                self.center[0] + self.rx + tx,
+                self.center[1] + self.ry + ty
+            ]
+            draw.ellipse(bbox, fill=(0, 0, 0, alpha_int))
+        else:
+            # For rotated ellipses, use polygon
+            points = self._get_rotated_ellipse_points()
+            translated = [(p[0] + tx, p[1] + ty) for p in points]
+            draw.polygon(translated, fill=(0, 0, 0, alpha_int))
 
     def to_svg(self) -> str:
         """Generate SVG ellipse."""
@@ -417,6 +475,14 @@ class Ellipse(Shape):
         filter_attr = f' filter="{blur}"' if blur else ''
 
         return f'<ellipse cx="{self.center[0]}" cy="{self.center[1]}" rx="{self.rx}" ry="{self.ry}" fill="rgb({self.color[0]},{self.color[1]},{self.color[2]})" fill-opacity="{self.alpha:.2f}" transform="rotate({rot_deg:.2f},{self.center[0]},{self.center[1]})"{filter_attr}/>'
+
+    def scale(self, scale_factor: float) -> 'Ellipse':
+        """Scale ellipse coordinates."""
+        self.center = (int(self.center[0] * scale_factor), int(self.center[1] * scale_factor))
+        self.rx = int(self.rx * scale_factor)
+        self.ry = int(self.ry * scale_factor)
+        self.compute_bbox()
+        return self
 
 
 class Quadrilateral(PointShape):
@@ -477,6 +543,12 @@ class Quadrilateral(PointShape):
         filter_attr = f' filter="{blur}"' if blur else ''
 
         return f'<path d="{d}" fill="rgb({self.color[0]},{self.color[1]},{self.color[2]})" fill-opacity="{self.alpha:.2f}"{filter_attr}/>'
+
+    def scale(self, scale_factor: float) -> 'Quadrilateral':
+        """Scale quadrilateral coordinates."""
+        self.points = [(int(p[0] * scale_factor), int(p[1] * scale_factor)) for p in self.points]
+        self.compute_bbox()
+        return self
 
 
 # Shape type list for configuration

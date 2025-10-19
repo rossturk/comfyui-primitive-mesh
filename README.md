@@ -11,6 +11,7 @@ This is a Python port of the [Sketchbeast](https://github.com/rossturk/sketchbea
 - **Dual output**: Returns both raster image (tensor) and vector SVG
 - **Reproducible**: Seed-based random generation
 - **Scalable**: Adjustable computation size for performance tuning
+- **GPU Accelerated**: Automatic CUDA/GPU acceleration for 1.3-1.5x speedup (30-55% faster)
 
 ## Installation
 

@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING
 from PIL import Image, ImageDraw
 import copy
 
-from . import util
+try:
+    from . import util
+except ImportError:
+    import util
 
 if TYPE_CHECKING:
     from .shapes import Shape
@@ -35,9 +38,16 @@ class Step:
             shape: Shape instance
             cfg: Configuration dictionary
         """
+        import random
+
         self.shape = shape
         self.cfg = cfg
-        self.alpha = cfg.get('alpha', 0.5)
+
+        # Randomize alpha within the configured range
+        alpha_base = cfg.get('alpha', 0.5)
+        alpha_range = cfg.get('alpha_range', 0.0)
+        self.alpha = alpha_base + (random.random() - 0.5) * alpha_range
+        self.alpha = max(0.1, min(1.0, self.alpha))  # Clamp to valid range
 
         # Computed during compute() call
         self.color = (0, 0, 0)
@@ -64,7 +74,10 @@ class Step:
         Returns:
             New state with this step applied
         """
-        from .state import State
+        try:
+            from .state import State
+        except ImportError:
+            from state import State
 
         # Clone current canvas
         new_canvas = state.current.copy()
@@ -177,3 +190,16 @@ class Step:
             mutated.alpha = self.alpha
 
         return mutated
+
+    def scale(self, scale_factor: float) -> 'Step':
+        """
+        Scale the shape coordinates by a factor.
+
+        Args:
+            scale_factor: Factor to scale coordinates by
+
+        Returns:
+            Self (for chaining)
+        """
+        self.shape.scale(scale_factor)
+        return self
