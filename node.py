@@ -9,6 +9,9 @@ from typing import Tuple, Dict, Any
 import random
 import io
 import base64
+import os
+import json
+from PIL.PngImagePlugin import PngInfo
 
 from .shapes import Triangle, Rectangle, RotatedRectangle, Ellipse, Quadrilateral
 from .optimizer import Optimizer
@@ -23,6 +26,12 @@ except ImportError:
     GPU_AVAILABLE = False
     OptimizerTorch = None
     OptimizerUltra = None
+
+# Import folder_paths for temp directory
+try:
+    import folder_paths
+except ImportError:
+    folder_paths = None
 
 # ComfyUI imports for preview support
 try:
@@ -50,7 +59,7 @@ class PrimitiveMeshNode:
             "required": {
                 "image": ("IMAGE",),  # ComfyUI image tensor (B, H, W, C) in 0-1 range
                 "num_shapes": ("INT", {
-                    "default": 50,
+                    "default": 35,
                     "min": 7,
                     "max": 500,
                     "step": 1,
@@ -78,15 +87,15 @@ class PrimitiveMeshNode:
                     "max": 0xffffffffffffffff,
                     "display": "number"
                 }),
-                "candidate_shapes": ("INT", {
-                    "default": 200,
+                "candidates_per_shape": ("INT", {
+                    "default": 150,
                     "min": 50,
                     "max": 500,
                     "step": 10,
                     "display": "number"
                 }),
-                "mutations": ("INT", {
-                    "default": 50,
+                "mutations_per_shape": ("INT", {
+                    "default": 30,
                     "min": 10,
                     "max": 200,
                     "step": 10,
@@ -96,7 +105,7 @@ class PrimitiveMeshNode:
         }
 
     RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("image", "svg")
+    RETURN_NAMES = ("image", "svg_string")
     FUNCTION = "generate"
     CATEGORY = "image/artistic"
     OUTPUT_NODE = False
@@ -108,8 +117,8 @@ class PrimitiveMeshNode:
         shape_type: str,
         style: str,
         seed: int,
-        candidate_shapes: int,
-        mutations: int
+        candidates_per_shape: int,
+        mutations_per_shape: int
     ) -> Tuple[torch.Tensor, str]:
         """
         Generate vector art from input image.
@@ -196,8 +205,8 @@ class PrimitiveMeshNode:
             'alpha': alpha_base,  # Base alpha value
             'alpha_range': alpha_range,  # Range for randomization
             'shapeTypes': shape_types,
-            'shapes': candidate_shapes,
-            'mutations': mutations,
+            'shapes': candidates_per_shape,
+            'mutations': mutations_per_shape,
             'computeSize': compute_size,
             'mutateAlpha': True,  # Enable alpha variation
             'blur': 0,  # No blur for now
@@ -320,7 +329,13 @@ class PrimitiveMeshNode:
 
         print(f"Primitive mesh complete: generated {step_count[0]} shapes at {original_width}x{original_height}")
 
-        return (result_tensor, svg)
+        # Save preview image for inline display
+        preview_result = self._save_preview_image(result_tensor)
+
+        return {
+            "ui": {"images": preview_result},
+            "result": (result_tensor, svg)
+        }
 
     def _get_shape_types(self, shape_type: str) -> list:
         """Get shape class list based on type selection."""
@@ -393,3 +408,37 @@ class PrimitiveMeshNode:
         svg_body = '\n'.join(svg_parts)
 
         return svg_header + svg_body + svg_footer
+
+    def _save_preview_image(self, image_tensor: torch.Tensor) -> list:
+        """
+        Save image to temp directory for inline preview.
+
+        Args:
+            image_tensor: Image tensor (1, H, W, C) in 0-1 range
+
+        Returns:
+            List of image info dicts for UI
+        """
+        if folder_paths is None:
+            return []
+
+        # Get temp directory
+        output_dir = folder_paths.get_temp_directory()
+
+        # Generate random filename
+        import string
+        random_suffix = ''.join(random.choice(string.ascii_lowercase) for _ in range(5))
+        filename = f"primitivemesh_temp_{random_suffix}_00000_.png"
+
+        # Convert tensor to PIL image
+        i = 255. * image_tensor[0].cpu().numpy()
+        img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+
+        # Save image
+        img.save(os.path.join(output_dir, filename), compress_level=4)
+
+        return [{
+            "filename": filename,
+            "subfolder": "",
+            "type": "temp"
+        }]
