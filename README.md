@@ -40,20 +40,21 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Add the **"Sketchbeast Image to Vector Art"** node to your workflow
+1. Add the **"Create a Primitive Mesh"** node to your workflow
 2. Connect an image input
 3. Configure parameters:
-   - **num_shapes**: Number of geometric shapes to generate (7-500)
+   - **num_shapes**: Number of geometric shapes to generate (7-500, default: 35)
    - **shape_type**: Type of shapes (mixed, rectangles, triangles, quadrilaterals, ellipses)
-   - **alpha**: Shape transparency (0.1-1.0)
+   - **style**: Visual style (crispy, dreamy, blurry) - controls shape transparency
    - **seed**: Random seed for reproducibility
-   - **compute_size**: Max dimension for computation (smaller = faster, larger = more detail)
-   - **candidate_shapes**: Number of candidate shapes evaluated per iteration (higher = better quality, slower)
-   - **mutations**: Number of mutation attempts per shape (higher = better refinement, slower)
+   - **candidates_per_shape**: Number of candidate shapes evaluated per iteration (50-500, default: 150)
+   - **mutations_per_shape**: Number of mutation attempts per shape (10-200, default: 30)
 
 4. The node outputs:
    - **image**: Rasterized result as ComfyUI image tensor
-   - **svg**: Complete SVG document as string
+   - **svg_string**: Complete SVG document as string
+
+Note: `compute_size` is automatically set to 256 pixels for optimal performance
 
 ## Parameters Guide
 
@@ -61,21 +62,18 @@ pip install -r requirements.txt
 
 **Fast mode** (quick preview):
 - num_shapes: 20-50
-- compute_size: 256
-- candidate_shapes: 100
-- mutations: 30
+- candidates_per_shape: 100
+- mutations_per_shape: 20
 
-**Balanced mode** (recommended):
-- num_shapes: 50-100
-- compute_size: 400
-- candidate_shapes: 200
-- mutations: 50
+**Balanced mode** (recommended, default):
+- num_shapes: 35-70
+- candidates_per_shape: 150
+- mutations_per_shape: 30
 
 **Quality mode** (slow, detailed):
-- num_shapes: 150-300
-- compute_size: 512-1024
-- candidate_shapes: 300-500
-- mutations: 100-200
+- num_shapes: 100-200
+- candidates_per_shape: 300-500
+- mutations_per_shape: 50-100
 
 ### Shape Types
 
@@ -145,22 +143,21 @@ ComfyUI adaptation Copyright (c) 2025
 - Restart ComfyUI
 
 **Out of memory errors:**
-- Reduce `compute_size`
 - Reduce `num_shapes`
-- Reduce `candidate_shapes`
+- Reduce `candidates_per_shape`
+- Close other GPU-intensive applications
 
 **Slow performance:**
-- Lower `compute_size` to 256 or 128
-- Reduce `candidate_shapes` to 100
-- Reduce `mutations` to 30
+- Reduce `candidates_per_shape` to 100
+- Reduce `mutations_per_shape` to 20
 - Use fewer shapes
+- Consider using GPU acceleration if available
 
 **Poor quality results:**
 - Increase `num_shapes`
-- Increase `candidate_shapes`
-- Increase `mutations`
-- Use higher `compute_size`
-- Adjust `alpha` (try 0.4-0.6 range)
+- Increase `candidates_per_shape`
+- Increase `mutations_per_shape`
+- Adjust `style` (try different presets: crispy/dreamy/blurry)
 
 ## Development
 

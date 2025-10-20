@@ -10,6 +10,45 @@ from PIL import Image, ImageDraw
 import random
 import math
 
+try:
+    from .constants import (
+        SHAPE_MUTATION_DISTANCE,
+        SHAPE_MUTATION_ANGLE_RANGE,
+        SHAPE_MUTATION_SCALE_MIN,
+        SHAPE_MUTATION_SCALE_MAX,
+        TRIANGLE_INITIAL_RADIUS,
+        RECTANGLE_MUTATION_AMOUNT,
+        ROTATED_RECT_MIN_SIZE,
+        ROTATED_RECT_MAX_SIZE,
+        ELLIPSE_MIN_RADIUS,
+        ELLIPSE_MAX_RADIUS,
+        ELLIPSE_MUTATION_RADIUS,
+        ELLIPSE_RADIUS_MUTATION,
+        QUAD_MIN_LENGTH,
+        QUAD_MAX_LENGTH,
+        QUAD_LENGTH_VARIATION,
+        QUAD_LENGTH_OFFSET,
+    )
+except ImportError:
+    from constants import (
+        SHAPE_MUTATION_DISTANCE,
+        SHAPE_MUTATION_ANGLE_RANGE,
+        SHAPE_MUTATION_SCALE_MIN,
+        SHAPE_MUTATION_SCALE_MAX,
+        TRIANGLE_INITIAL_RADIUS,
+        RECTANGLE_MUTATION_AMOUNT,
+        ROTATED_RECT_MIN_SIZE,
+        ROTATED_RECT_MAX_SIZE,
+        ELLIPSE_MIN_RADIUS,
+        ELLIPSE_MAX_RADIUS,
+        ELLIPSE_MUTATION_RADIUS,
+        ELLIPSE_RADIUS_MUTATION,
+        QUAD_MIN_LENGTH,
+        QUAD_MAX_LENGTH,
+        QUAD_LENGTH_VARIATION,
+        QUAD_LENGTH_OFFSET,
+    )
+
 
 class Shape(ABC):
     """Base class for all shapes."""
@@ -138,7 +177,7 @@ class PointShape(Shape):
         point = list(clone.points[index])
 
         angle = random.random() * 2 * math.pi
-        radius = random.random() * 10
+        radius = random.random() * SHAPE_MUTATION_DISTANCE
 
         point[0] += int(radius * math.cos(angle))
         point[1] += int(radius * math.sin(angle))
@@ -163,7 +202,7 @@ class Triangle(PointShape):
 
         for i in range(1, count):
             angle = random.random() * 2 * math.pi
-            radius = random.random() * 20
+            radius = random.random() * TRIANGLE_INITIAL_RADIUS
             points.append((
                 first[0] + int(radius * math.cos(angle)),
                 first[1] + int(radius * math.sin(angle))
@@ -184,9 +223,9 @@ class Triangle(PointShape):
 
     def to_svg(self) -> str:
         """Generate SVG path for triangle."""
-        d = "M{},{}".format(self.points[0][0], self.points[0][1])
+        d = f"M{self.points[0][0]},{self.points[0][1]}"
         for p in self.points[1:]:
-            d += " L{},{}".format(p[0], p[1])
+            d += f" L{p[0]},{p[1]}"
         d += "Z"
 
         blur = self.get_blur(self.cfg.get('blur', 0))
@@ -232,7 +271,7 @@ class Rectangle(PointShape):
         clone = Rectangle(cfg, 0, 0)
         clone.points = [p for p in self.points]
 
-        amount = int((random.random() - 0.5) * 20)
+        amount = int((random.random() - 0.5) * RECTANGLE_MUTATION_AMOUNT)
         side = random.randint(0, 3)
 
         points = [list(p) for p in clone.points]
@@ -266,9 +305,9 @@ class Rectangle(PointShape):
 
     def to_svg(self) -> str:
         """Generate SVG path for rectangle."""
-        d = "M{},{}".format(self.points[0][0], self.points[0][1])
+        d = f"M{self.points[0][0]},{self.points[0][1]}"
         for p in self.points[1:]:
-            d += " L{},{}".format(p[0], p[1])
+            d += f" L{p[0]},{p[1]}"
         d += "Z"
 
         blur = self.get_blur(self.cfg.get('blur', 0))
@@ -290,8 +329,8 @@ class RotatedRectangle(PointShape):
         super().__init__(cfg, w, h)
         self.type = "RotatedRectangle"
         self.center = Shape.random_point(w, h)
-        self.sizex = 1 + random.random() * 300
-        self.sizey = 1 + random.random() * 300
+        self.sizex = ROTATED_RECT_MIN_SIZE + random.random() * ROTATED_RECT_MAX_SIZE
+        self.sizey = ROTATED_RECT_MIN_SIZE + random.random() * ROTATED_RECT_MAX_SIZE
         self.angle = random.random() * math.pi
         self.points = self._create_rect_points(self.center, self.sizex, self.sizey, self.angle)
         self.compute_bbox()
@@ -325,11 +364,13 @@ class RotatedRectangle(PointShape):
 
         choice = random.randint(0, 2)
         if choice == 0:  # rotate
-            clone.angle += random.random() * 0.60 - 0.30
+            clone.angle += random.random() * SHAPE_MUTATION_ANGLE_RANGE - (SHAPE_MUTATION_ANGLE_RANGE / 2)
         elif choice == 1:  # scale x
-            clone.sizex *= random.random() * 0.4 + 0.8
+            scale_range = SHAPE_MUTATION_SCALE_MAX - SHAPE_MUTATION_SCALE_MIN
+            clone.sizex *= random.random() * scale_range + SHAPE_MUTATION_SCALE_MIN
         else:  # scale y
-            clone.sizey *= random.random() * 0.4 + 0.8
+            scale_range = SHAPE_MUTATION_SCALE_MAX - SHAPE_MUTATION_SCALE_MIN
+            clone.sizey *= random.random() * scale_range + SHAPE_MUTATION_SCALE_MIN
 
         clone.points = self._create_rect_points(clone.center, clone.sizex, clone.sizey, clone.angle)
         return clone.compute_bbox()
@@ -347,9 +388,9 @@ class RotatedRectangle(PointShape):
 
     def to_svg(self) -> str:
         """Generate SVG path for rotated rectangle."""
-        d = "M{},{}".format(self.points[0][0], self.points[0][1])
+        d = f"M{self.points[0][0]},{self.points[0][1]}"
         for p in self.points[1:]:
-            d += " L{},{}".format(p[0], p[1])
+            d += f" L{p[0]},{p[1]}"
         d += "Z"
 
         blur = self.get_blur(self.cfg.get('blur', 0))
@@ -374,8 +415,8 @@ class Ellipse(Shape):
         super().__init__(cfg, w, h)
         self.type = "Ellipse"
         self.center = Shape.random_point(w, h)
-        self.rx = 1 + int(random.random() * 20)
-        self.ry = 1 + int(random.random() * 20)
+        self.rx = ELLIPSE_MIN_RADIUS + int(random.random() * ELLIPSE_MAX_RADIUS)
+        self.ry = ELLIPSE_MIN_RADIUS + int(random.random() * ELLIPSE_MAX_RADIUS)
         self.rot = random.random() * math.pi / 2
         self.compute_bbox()
 
@@ -401,17 +442,17 @@ class Ellipse(Shape):
         choice = random.randint(0, 2)
         if choice == 0:  # move center
             angle = random.random() * 2 * math.pi
-            radius = random.random() * 20
+            radius = random.random() * ELLIPSE_MUTATION_RADIUS
             clone.center = (
                 int(clone.center[0] + radius * math.cos(angle)),
                 int(clone.center[1] + radius * math.sin(angle))
             )
         elif choice == 1:  # scale rx
-            clone.rx += int((random.random() - 0.5) * 20)
-            clone.rx = max(1, clone.rx)
+            clone.rx += int((random.random() - 0.5) * ELLIPSE_RADIUS_MUTATION)
+            clone.rx = max(ELLIPSE_MIN_RADIUS, clone.rx)
         else:  # scale ry
-            clone.ry += int((random.random() - 0.5) * 20)
-            clone.ry = max(1, clone.ry)
+            clone.ry += int((random.random() - 0.5) * ELLIPSE_RADIUS_MUTATION)
+            clone.ry = max(ELLIPSE_MIN_RADIUS, clone.ry)
 
         return clone.compute_bbox()
 
@@ -497,8 +538,8 @@ class Quadrilateral(PointShape):
     def _create_points(self, w: int, h: int) -> List[Tuple[int, int]]:
         """Create quadrilateral points."""
         center = Shape.random_point(w, h)
-        l1 = 1 + random.random() * 75
-        l2 = l1 + l1 * (random.random() * 0.4 - 0.8)
+        l1 = QUAD_MIN_LENGTH + random.random() * QUAD_MAX_LENGTH
+        l2 = l1 + l1 * (random.random() * QUAD_LENGTH_VARIATION - QUAD_LENGTH_OFFSET)
         angle = random.random() * math.pi
 
         points = []
@@ -534,9 +575,9 @@ class Quadrilateral(PointShape):
 
     def to_svg(self) -> str:
         """Generate SVG path for quadrilateral."""
-        d = "M{},{}".format(self.points[0][0], self.points[0][1])
+        d = f"M{self.points[0][0]},{self.points[0][1]}"
         for p in self.points[1:]:
-            d += " L{},{}".format(p[0], p[1])
+            d += f" L{p[0]},{p[1]}"
         d += "Z"
 
         blur = self.get_blur(self.cfg.get('blur', 0))

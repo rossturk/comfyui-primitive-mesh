@@ -15,17 +15,25 @@ from PIL.PngImagePlugin import PngInfo
 
 from .shapes import Triangle, Rectangle, RotatedRectangle, Ellipse, Quadrilateral
 from .optimizer import Optimizer
+from .constants import (
+    DEFAULT_COMPUTE_SIZE,
+    PREVIEW_INTERVAL_DIVISOR,
+    STYLE_CRISPY_ALPHA_BASE,
+    STYLE_CRISPY_ALPHA_RANGE,
+    STYLE_DREAMY_ALPHA_BASE,
+    STYLE_DREAMY_ALPHA_RANGE,
+    STYLE_BLURRY_ALPHA_BASE,
+    STYLE_BLURRY_ALPHA_RANGE,
+)
 
 # Try to import GPU-accelerated versions
 try:
     from .optimizer_torch import OptimizerTorch
-    from .optimizer_ultra import OptimizerUltra
     from .util_torch import get_device
     GPU_AVAILABLE = torch.cuda.is_available()
 except ImportError:
     GPU_AVAILABLE = False
     OptimizerTorch = None
-    OptimizerUltra = None
 
 # Import folder_paths for temp directory
 try:
@@ -139,9 +147,22 @@ class PrimitiveMeshNode:
         Returns:
             Tuple of (output image tensor, SVG string)
         """
-        # Hardcoded compute size for optimization
-        compute_size = 256
-        # Hardcoded fill color (auto-detect from image border)
+        # Input validation
+        if num_shapes < 1:
+            raise ValueError(f"num_shapes must be at least 1, got {num_shapes}")
+
+        if candidates_per_shape < 1:
+            raise ValueError(f"candidates_per_shape must be at least 1, got {candidates_per_shape}")
+
+        if mutations_per_shape < 1:
+            raise ValueError(f"mutations_per_shape must be at least 1, got {mutations_per_shape}")
+
+        if image.shape[0] == 0:
+            raise ValueError("Input image batch is empty")
+
+        # Use default compute size for optimization
+        compute_size = DEFAULT_COMPUTE_SIZE
+        # Auto-detect fill color from image border
         fill_color = "auto"
 
         # Set random seed (clamp to valid range for NumPy)
@@ -150,19 +171,19 @@ class PrimitiveMeshNode:
         random.seed(seed)
         np.random.seed(seed_clamped)
 
-        # Configure alpha based on style
+        # Configure alpha based on style (using constants)
         if style == "crispy":
             # High opacity, less variation - sharp defined shapes
-            alpha_base = 0.85
-            alpha_range = 0.15  # 0.7 to 1.0
+            alpha_base = STYLE_CRISPY_ALPHA_BASE
+            alpha_range = STYLE_CRISPY_ALPHA_RANGE  # 0.7 to 1.0
         elif style == "dreamy":
             # Medium opacity with variation - soft blended look
-            alpha_base = 0.5
-            alpha_range = 0.3  # 0.35 to 0.65
+            alpha_base = STYLE_DREAMY_ALPHA_BASE
+            alpha_range = STYLE_DREAMY_ALPHA_RANGE  # 0.35 to 0.65
         else:  # blurry
             # Low opacity, high variation - very transparent overlapping
-            alpha_base = 0.25
-            alpha_range = 0.2  # 0.15 to 0.35
+            alpha_base = STYLE_BLURRY_ALPHA_BASE
+            alpha_range = STYLE_BLURRY_ALPHA_RANGE  # 0.15 to 0.35
 
         # Convert ComfyUI tensor to numpy (take first image if batch)
         img_np = image[0].cpu().numpy()  # (H, W, C)
@@ -217,7 +238,6 @@ class PrimitiveMeshNode:
             'minlinewidth': 1,
             'maxlinewidth': 2,
             'fill': fill_rgb,
-            'parallel': False  # Sequential is more reliable for now
         }
 
         # Determine which optimizer to use (auto-detect GPU)
@@ -255,7 +275,7 @@ class PrimitiveMeshNode:
                 pbar.update_absolute(step_num, total)
 
             # Send preview every N steps via PromptServer WebSocket
-            preview_interval = max(1, num_shapes // 20)  # Show ~20 previews total
+            preview_interval = max(1, num_shapes // PREVIEW_INTERVAL_DIVISOR)
             if COMFY_AVAILABLE and PromptServer and (step_num % preview_interval == 0 or step_num == total):
                 # Get current canvas (handle both CPU and GPU state)
                 if use_gpu_optimizer:
@@ -411,37 +431,3 @@ class PrimitiveMeshNode:
         svg_body = '\n'.join(svg_parts)
 
         return svg_header + svg_body + svg_footer
-
-    def _save_preview_image(self, image_tensor: torch.Tensor) -> list:
-        """
-        Save image to temp directory for inline preview.
-
-        Args:
-            image_tensor: Image tensor (1, H, W, C) in 0-1 range
-
-        Returns:
-            List of image info dicts for UI
-        """
-        if folder_paths is None:
-            return []
-
-        # Get temp directory
-        output_dir = folder_paths.get_temp_directory()
-
-        # Generate random filename
-        import string
-        random_suffix = ''.join(random.choice(string.ascii_lowercase) for _ in range(5))
-        filename = f"primitivemesh_temp_{random_suffix}_00000_.png"
-
-        # Convert tensor to PIL image
-        i = 255. * image_tensor[0].cpu().numpy()
-        img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-
-        # Save image
-        img.save(os.path.join(output_dir, filename), compress_level=4)
-
-        return [{
-            "filename": filename,
-            "subfolder": "",
-            "type": "temp"
-        }]

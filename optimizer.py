@@ -5,7 +5,6 @@ Ported from optimizer.js to Python.
 
 import numpy as np
 from typing import Callable, Optional
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import time
 
 try:
@@ -112,20 +111,6 @@ class Optimizer:
         num_shapes = self.cfg.get('shapes', 200)
         best_step = None
 
-        # Option to use multiprocessing
-        use_parallel = self.cfg.get('parallel', False)
-
-        if use_parallel:
-            best_step = self._find_best_step_parallel(num_shapes)
-        else:
-            best_step = self._find_best_step_sequential(num_shapes)
-
-        return best_step
-
-    def _find_best_step_sequential(self, num_shapes: int) -> Optional[Step]:
-        """Find best step sequentially (simpler, no multiprocessing overhead)."""
-        best_step = None
-
         for i in range(num_shapes):
             shape = Shape.create(self.cfg)
             step = Step(shape, self.cfg)
@@ -133,29 +118,6 @@ class Optimizer:
 
             if best_step is None or step.distance < best_step.distance:
                 best_step = step
-
-        return best_step
-
-    def _find_best_step_parallel(self, num_shapes: int) -> Optional[Step]:
-        """Find best step using parallel evaluation (for large workloads)."""
-        # Note: Due to Python's GIL, ThreadPoolExecutor might be better for I/O
-        # ProcessPoolExecutor is better for CPU-bound tasks but has serialization overhead
-
-        best_step = None
-        batch_size = 10  # Process in batches to reduce overhead
-
-        for batch_start in range(0, num_shapes, batch_size):
-            batch_end = min(batch_start + batch_size, num_shapes)
-            batch_count = batch_end - batch_start
-
-            # Process batch sequentially (multiprocessing overhead not worth it for this)
-            for i in range(batch_count):
-                shape = Shape.create(self.cfg)
-                step = Step(shape, self.cfg)
-                step.compute(self.state)
-
-                if best_step is None or step.distance < best_step.distance:
-                    best_step = step
 
         return best_step
 

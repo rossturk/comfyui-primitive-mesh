@@ -10,9 +10,13 @@ from typing import TYPE_CHECKING
 try:
     from . import util_torch
     from .rasterizer_torch import rasterize_shape_hybrid
+    from .constants import MIN_ALPHA, MAX_ALPHA, ALPHA_MUTATION_RANGE
+    from .common import clamp
 except ImportError:
     import util_torch
     from rasterizer_torch import rasterize_shape_hybrid
+    from constants import MIN_ALPHA, MAX_ALPHA, ALPHA_MUTATION_RANGE
+    from common import clamp
 
 if TYPE_CHECKING:
     from .shapes import Shape
@@ -45,7 +49,7 @@ class StepTorch:
         alpha_base = cfg.get('alpha', 0.5)
         alpha_range = cfg.get('alpha_range', 0.0)
         self.alpha = alpha_base + (random.random() - 0.5) * alpha_range
-        self.alpha = max(0.1, min(1.0, self.alpha))  # Clamp to valid range
+        self.alpha = clamp(self.alpha, MIN_ALPHA, MAX_ALPHA)
 
         # Computed during compute() call
         self.color = (0, 0, 0)
@@ -199,8 +203,8 @@ class StepTorch:
 
         # Optionally mutate alpha
         if self.cfg.get('mutateAlpha', False):
-            mutated_alpha = self.alpha + (random.random() - 0.5) * 0.08
-            mutated.alpha = util_torch.clamp(mutated_alpha, 0.1, 1.0)
+            mutated_alpha = self.alpha + (random.random() - 0.5) * ALPHA_MUTATION_RANGE
+            mutated.alpha = clamp(mutated_alpha, MIN_ALPHA, MAX_ALPHA)
         else:
             mutated.alpha = self.alpha
 

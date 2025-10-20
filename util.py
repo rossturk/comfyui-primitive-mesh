@@ -6,30 +6,22 @@ Ported from util.js to Python with NumPy.
 import numpy as np
 from typing import Tuple
 
-
-def clamp(x: float, min_val: float, max_val: float) -> float:
-    """Clamp value between min and max."""
-    return max(min_val, min(max_val, x))
-
-
-def clamp_color(x: float) -> int:
-    """Clamp color value to valid range [0, 255]."""
-    return int(clamp(x, 0, 255))
-
-
-def distance_to_difference(distance: float, pixels: int) -> float:
-    """Convert distance metric to difference sum."""
-    return (distance * 255) ** 2 * (3 * pixels)
-
-
-def difference_to_distance(difference: float, pixels: int) -> float:
-    """Convert difference sum to distance metric."""
-    if pixels == 0:
-        return 0.0
-    # Clamp difference to non-negative to avoid sqrt of negative number
-    # (can occur due to floating point precision issues)
-    difference = max(0.0, difference)
-    return np.sqrt(difference / (3 * pixels)) / 255
+try:
+    from .common import (
+        clamp,
+        clamp_color,
+        distance_to_difference,
+        difference_to_distance,
+        compute_valid_regions
+    )
+except ImportError:
+    from common import (
+        clamp,
+        clamp_color,
+        distance_to_difference,
+        difference_to_distance,
+        compute_valid_regions
+    )
 
 
 def difference(data1: np.ndarray, data2: np.ndarray) -> float:
@@ -67,23 +59,13 @@ def compute_color(offset: dict, image_data: dict, alpha: float) -> np.ndarray:
     sh, sw = shape_data.shape[:2]
     fh, fw = current_data.shape[:2]
 
-    # Calculate valid region bounds (clip to image boundaries)
-    top = offset['top']
-    left = offset['left']
-
-    # Calculate valid overlap region
-    shape_y_start = max(0, -top)
-    shape_y_end = min(sh, fh - top)
-    shape_x_start = max(0, -left)
-    shape_x_end = min(sw, fw - left)
-
-    frame_y_start = max(0, top)
-    frame_y_end = min(fh, top + sh)
-    frame_x_start = max(0, left)
-    frame_x_end = min(fw, left + sw)
+    # Calculate valid region bounds using common utility
+    (shape_y_start, shape_y_end, shape_x_start, shape_x_end), \
+    (frame_y_start, frame_y_end, frame_x_start, frame_x_end), \
+    is_valid = compute_valid_regions(offset, sh, sw, fh, fw)
 
     # Handle out of bounds cases
-    if shape_y_start >= shape_y_end or shape_x_start >= shape_x_end:
+    if not is_valid:
         return np.array([0, 0, 0], dtype=np.uint8)
 
     # Extract overlapping regions
@@ -135,23 +117,13 @@ def compute_difference_change(offset: dict, image_data: dict, color: np.ndarray)
     sh, sw = shape_data.shape[:2]
     fh, fw = current_data.shape[:2]
 
-    # Calculate valid region bounds (clip to image boundaries)
-    top = offset['top']
-    left = offset['left']
-
-    # Calculate valid overlap region
-    shape_y_start = max(0, -top)
-    shape_y_end = min(sh, fh - top)
-    shape_x_start = max(0, -left)
-    shape_x_end = min(sw, fw - left)
-
-    frame_y_start = max(0, top)
-    frame_y_end = min(fh, top + sh)
-    frame_x_start = max(0, left)
-    frame_x_end = min(fw, left + sw)
+    # Calculate valid region bounds using common utility
+    (shape_y_start, shape_y_end, shape_x_start, shape_x_end), \
+    (frame_y_start, frame_y_end, frame_x_start, frame_x_end), \
+    is_valid = compute_valid_regions(offset, sh, sw, fh, fw)
 
     # Handle out of bounds cases
-    if shape_y_start >= shape_y_end or shape_x_start >= shape_x_end:
+    if not is_valid:
         return 0.0
 
     # Extract overlapping regions
@@ -218,23 +190,13 @@ def compute_color_and_difference_change(offset: dict, image_data: dict, alpha: f
     sh, sw = shape_data.shape[:2]
     fh, fw = current_data.shape[:2]
 
-    # Calculate valid region bounds (clip to image boundaries)
-    top = offset['top']
-    left = offset['left']
-
-    # Calculate valid overlap region
-    shape_y_start = max(0, -top)
-    shape_y_end = min(sh, fh - top)
-    shape_x_start = max(0, -left)
-    shape_x_end = min(sw, fw - left)
-
-    frame_y_start = max(0, top)
-    frame_y_end = min(fh, top + sh)
-    frame_x_start = max(0, left)
-    frame_x_end = min(fw, left + sw)
+    # Calculate valid region bounds using common utility
+    (shape_y_start, shape_y_end, shape_x_start, shape_x_end), \
+    (frame_y_start, frame_y_end, frame_x_start, frame_x_end), \
+    is_valid = compute_valid_regions(offset, sh, sw, fh, fw)
 
     # Handle out of bounds cases
-    if shape_y_start >= shape_y_end or shape_x_start >= shape_x_end:
+    if not is_valid:
         return np.array([0, 0, 0], dtype=np.uint8), 0.0
 
     # Extract overlapping regions (only done once, shared by both computations)
