@@ -36,24 +36,11 @@ app.registerExtension({
                     max-height: 400px;
                     display: none;
                     border-radius: 4px;
-                    margin-bottom: 10px;
                 `;
                 container.appendChild(img);
 
-                // Create progress text
-                const progress = document.createElement("div");
-                progress.style.cssText = `
-                    color: #999;
-                    text-align: center;
-                    font-family: monospace;
-                    font-size: 12px;
-                `;
-                progress.textContent = "Ready";
-                container.appendChild(progress);
-
-                // Store references
+                // Store reference
                 this.previewImage = img;
-                this.previewProgress = progress;
 
                 return result;
             };
@@ -65,26 +52,24 @@ app.registerExtension({
         app.api.addEventListener("primitivemesh.preview", (event) => {
             const data = event.detail;
 
-            // Find the PrimitiveMesh node that's currently executing
-            const node = app.graph._nodes.find(n => n.type === "PrimitiveMeshNode");
-            if (!node || !node.previewImage) return;
+            console.log("Preview received for node_id:", data.node_id);
+            console.log("Available nodes:", app.graph._nodes.filter(n => n.type === "PrimitiveMeshNode").map(n => ({id: n.id, type: n.type})));
+
+            // Find the specific PrimitiveMesh node by its unique ID
+            const node = app.graph._nodes.find(n => n.type === "PrimitiveMeshNode" && n.id == data.node_id);
+            if (!node) {
+                console.log("Node not found for id:", data.node_id);
+                return;
+            }
+            if (!node.previewImage) {
+                console.log("Node found but no previewImage:", node);
+                return;
+            }
 
             // Update preview image
+            console.log("Updating preview for node:", node.id);
             node.previewImage.src = "data:image/png;base64," + data.image;
             node.previewImage.style.display = "block";
-
-            // Update progress text
-            node.previewProgress.textContent = `Step ${data.step} / ${data.total}`;
-        });
-
-        // Reset preview on queue completion
-        app.api.addEventListener("executed", () => {
-            const nodes = app.graph._nodes.filter(n => n.type === "PrimitiveMeshNode");
-            nodes.forEach(node => {
-                if (node.previewProgress) {
-                    node.previewProgress.textContent = "Complete";
-                }
-            });
         });
     }
 });

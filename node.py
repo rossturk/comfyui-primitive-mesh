@@ -101,6 +101,9 @@ class PrimitiveMeshNode:
                     "step": 10,
                     "display": "number"
                 }),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID"
             }
         }
 
@@ -118,7 +121,8 @@ class PrimitiveMeshNode:
         style: str,
         seed: int,
         candidates_per_shape: int,
-        mutations_per_shape: int
+        mutations_per_shape: int,
+        unique_id=None
     ) -> Tuple[torch.Tensor, str]:
         """
         Generate vector art from input image.
@@ -261,9 +265,9 @@ class PrimitiveMeshNode:
                     # CPU state - already numpy
                     preview_array = state.current[:, :, :3]  # RGB only
 
-                # Resize to original dimensions for preview
+                # Use optimization canvas directly for preview (no upscaling!)
+                # This dramatically improves performance on large images
                 preview_pil = Image.fromarray(preview_array.astype(np.uint8))
-                preview_pil = preview_pil.resize((original_width, original_height), Image.Resampling.LANCZOS)
 
                 # Convert PIL image to base64 for sending via WebSocket
                 buffered = io.BytesIO()
@@ -271,10 +275,12 @@ class PrimitiveMeshNode:
                 img_str = base64.b64encode(buffered.getvalue()).decode()
 
                 # Send preview via PromptServer WebSocket
+                print(f"  Sending preview for node_id: {unique_id}")
                 PromptServer.instance.send_sync("primitivemesh.preview", {
                     "image": img_str,
                     "step": step_num,
-                    "total": total
+                    "total": total,
+                    "node_id": unique_id
                 })
 
             # Print progress periodically
@@ -283,7 +289,7 @@ class PrimitiveMeshNode:
 
         final_state = optimizer.start(progress_callback)
 
-        # Scale all shapes to original resolution and re-render
+        # Render all shapes at original resolution
         print(f"Rendering {len(step_list)} shapes at original resolution ({original_width}x{original_height})...")
 
         # Create full-resolution canvas
@@ -294,24 +300,25 @@ class PrimitiveMeshNode:
         # Convert to PIL for rendering
         img = Image.fromarray(full_res_canvas, mode='RGBA')
 
-        # Render each shape at full resolution
+        # Render each shape with proper alpha compositing
+        # Note: We must composite each shape individually to preserve proper alpha blending
         scaled_svg_parts = []
         for i, step in enumerate(step_list):
             # Scale shape coordinates to full resolution
             step.scale(scale)
 
-            # Create overlay for this shape
-            overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(overlay)
-
             # Set color with alpha
             color_with_alpha = step.color + (int(step.alpha * 255),)
             step.shape.color = color_with_alpha
 
+            # Create overlay for this shape
+            overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+
             # Render shape on overlay
             step.shape.render(draw)
 
-            # Composite overlay onto image
+            # Composite onto image
             img = Image.alpha_composite(img, overlay)
 
             # Generate SVG for scaled shape
@@ -329,13 +336,9 @@ class PrimitiveMeshNode:
 
         print(f"Primitive mesh complete: generated {step_count[0]} shapes at {original_width}x{original_height}")
 
-        # Save preview image for inline display
-        preview_result = self._save_preview_image(result_tensor)
-
-        return {
-            "ui": {"images": preview_result},
-            "result": (result_tensor, svg)
-        }
+        # Don't show inline preview - user can see the live preview during execution
+        # and connect the output to a preview node if they want to see the final result
+        return (result_tensor, svg)
 
     def _get_shape_types(self, shape_type: str) -> list:
         """Get shape class list based on type selection."""
