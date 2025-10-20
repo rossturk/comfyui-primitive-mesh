@@ -160,15 +160,6 @@ class OptimizerTorch:
 
         return best_step
 
-    def get_cpu_state(self):
-        """
-        Get current state as numpy arrays (for compatibility with CPU code).
-
-        Returns:
-            Tuple of (target_numpy, current_numpy)
-        """
-        return self.state.to_numpy()
-
 
 # Future optimizations:
 # 1. Batch candidate evaluation - evaluate multiple shapes in parallel on GPU

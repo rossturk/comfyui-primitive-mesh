@@ -5,6 +5,7 @@ Constants and configuration values for the primitive mesh optimizer.
 # Optimization settings
 DEFAULT_COMPUTE_SIZE = 256  # Maximum dimension for optimization (smaller = faster)
 PREVIEW_INTERVAL_DIVISOR = 20  # Show approximately this many previews total
+PRINT_PROGRESS_INTERVAL = 10  # Print progress message every N shapes
 
 # Alpha (transparency) constraints
 MIN_ALPHA = 0.1

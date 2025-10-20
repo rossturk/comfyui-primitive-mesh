@@ -590,7 +590,3 @@ class Quadrilateral(PointShape):
         self.points = [(int(p[0] * scale_factor), int(p[1] * scale_factor)) for p in self.points]
         self.compute_bbox()
         return self
-
-
-# Shape type list for configuration
-ALL_SHAPE_TYPES = [Triangle, Rectangle, RotatedRectangle, Ellipse, Quadrilateral]

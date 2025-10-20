@@ -18,6 +18,7 @@ from .optimizer import Optimizer
 from .constants import (
     DEFAULT_COMPUTE_SIZE,
     PREVIEW_INTERVAL_DIVISOR,
+    PRINT_PROGRESS_INTERVAL,
     STYLE_CRISPY_ALPHA_BASE,
     STYLE_CRISPY_ALPHA_RANGE,
     STYLE_DREAMY_ALPHA_BASE,
@@ -162,8 +163,6 @@ class PrimitiveMeshNode:
 
         # Use default compute size for optimization
         compute_size = DEFAULT_COMPUTE_SIZE
-        # Auto-detect fill color from image border
-        fill_color = "auto"
 
         # Set random seed (clamp to valid range for NumPy)
         # NumPy requires seed to be between 0 and 2**32 - 1
@@ -208,11 +207,8 @@ class PrimitiveMeshNode:
             alpha_channel = np.ones((target_array.shape[0], target_array.shape[1], 1), dtype=np.uint8) * 255
             target_array = np.concatenate([target_array, alpha_channel], axis=2)
 
-        # Determine fill color
-        if fill_color == "auto":
-            fill_rgb = self._compute_fill_color(target_array)
-        else:
-            fill_rgb = self._parse_color(fill_color)
+        # Auto-detect fill color from image border
+        fill_rgb = self._compute_fill_color(target_array)
 
         # Create initial canvas
         initial_canvas = np.ones_like(target_array) * 0
@@ -304,7 +300,7 @@ class PrimitiveMeshNode:
                 })
 
             # Print progress periodically
-            if step_num % 10 == 0:
+            if step_num % PRINT_PROGRESS_INTERVAL == 0:
                 print(f"  Progress: {step_num}/{total} shapes")
 
         final_state = optimizer.start(progress_callback)
@@ -394,16 +390,6 @@ class PrimitiveMeshNode:
         avg_color = np.mean(border_array, axis=0).astype(np.uint8)
 
         return tuple(avg_color)
-
-    def _parse_color(self, color_str: str) -> Tuple[int, int, int]:
-        """Parse color string (hex or rgb)."""
-        if color_str.startswith('#'):
-            # Hex color
-            color_str = color_str.lstrip('#')
-            return tuple(int(color_str[i:i+2], 16) for i in (0, 2, 4))
-        else:
-            # Default white
-            return (255, 255, 255)
 
     def _generate_svg(self, svg_parts: list, width: int, height: int, fill_color: Tuple[int, int, int]) -> str:
         """Generate complete SVG document."""
